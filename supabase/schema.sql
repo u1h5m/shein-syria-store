@@ -45,6 +45,14 @@ alter table public.orders enable row level security;
 alter table public.payments enable row level security;
 alter table public.store_settings enable row level security;
 
+drop policy if exists "Customers can read their profile" on public.profiles;
+drop policy if exists "Customers can update their profile" on public.profiles;
+drop policy if exists "Customers can read their orders" on public.orders;
+drop policy if exists "Customers can create their orders" on public.orders;
+drop policy if exists "Customers can read their payments" on public.payments;
+drop policy if exists "Customers can create their payments" on public.payments;
+drop policy if exists "Anyone can read storefront settings" on public.store_settings;
+
 create policy "Customers can read their profile"
   on public.profiles for select
   using (auth.uid() = id);
