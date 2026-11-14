@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { supabase } from './lib/supabase';
 import {
   ShoppingBag, ShieldCheck, Calculator, Package, Settings, Plus, Trash2,
   ExternalLink, Copy, Check, Search, Filter, Users, DollarSign, TrendingUp,
@@ -56,6 +57,8 @@ const hashPasswordSHA256 = async (password) => {
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 };
+
+const authEmailForPhone = (phone) => `${phone.replace(/\D/g, '')}@customers.shein-sy.local`;
 
 const STORAGE_KEYS = {
   SETTINGS: 'shein_sy_pricing_settings_v4',
@@ -163,7 +166,39 @@ export default function App() {
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders)); }, [orders]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.STOREFRONT, JSON.stringify(storefrontData)); }, [storefrontData]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(adminAuth)); }, [adminAuth]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers)); }, [customers]);
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+
+    const loadSupabaseSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session || !active) return;
+
+      const [{ data: profile }, { data: remoteOrders }] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle(),
+        supabase.from('orders').select('*').eq('customer_id', session.user.id).order('created_at', { ascending: false }),
+      ]);
+
+      if (profile) setCurrentCustomer(profile);
+      if (remoteOrders) {
+        setOrders(remoteOrders.map((order) => ({
+          ...order,
+          customerName: profile?.full_name || '',
+          customerContact: profile?.phone || '',
+          customerAddress: profile?.address || '',
+          createdAt: new Date(order.created_at).toLocaleDateString('ar-SY'),
+        })));
+      }
+    };
+
+    loadSupabaseSession();
+    const { data: listener } = supabase.auth.onAuthStateChange(() => loadSupabaseSession());
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+  useEffect(() => { if (!supabase) localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers)); }, [customers]);
   useEffect(() => {
     if (currentCustomer) {
       localStorage.setItem(STORAGE_KEYS.CUSTOMER_SESSION, JSON.stringify(currentCustomer));
@@ -212,35 +247,35 @@ export default function App() {
       return;
     }
 
-    const existing = customers.find((c) => c.phone === phone);
-    if (existing) {
-      setCustAuthError('رقم الهاتف هذا مسجل مسبقاً، يرجى تسجيل الدخول');
-      return;
-    }
-
     try {
-      const passHash = await hashPasswordSHA256(custPassword);
-      const newCustomer = {
-        id: `cust-${Date.now()}`,
-        phone,
-        name,
-        address,
-        passwordHash: passHash,
-        createdAt: new Date().toLocaleDateString('ar-SY')
-      };
+      if (supabase) {
+        const { data, error } = await supabase.auth.signUp({
+          email: authEmailForPhone(phone),
+          password: custPassword,
+          options: { data: { full_name: name, phone, address } },
+        });
+        if (error) throw error;
+        if (!data.user) throw new Error('تعذر إنشاء الحساب');
+        const newCustomer = { id: data.user.id, phone, name, address };
+        setCurrentCustomer(newCustomer);
+        setShowCustomerAuthModal(false);
+        showToast('تم إنشاء الحساب وتسجيل الدخول بنجاح أهلاً بك!');
+      } else {
+        const passHash = await hashPasswordSHA256(custPassword);
+        const newCustomer = { id: `cust-${Date.now()}`, phone, name, address, passwordHash: passHash, createdAt: new Date().toLocaleDateString('ar-SY') };
 
-      const updatedCustomers = [...customers, newCustomer];
-      setCustomers(updatedCustomers);
-      setCurrentCustomer(newCustomer);
-      setShowCustomerAuthModal(false);
+        setCustomers([...customers, newCustomer]);
+        setCurrentCustomer(newCustomer);
+        setShowCustomerAuthModal(false);
+        showToast('تم إنشاء الحساب وتسجيل الدخول بنجاح أهلاً بك!');
+      }
       setCustPhone('');
       setCustPassword('');
       setCustName('');
       setCustAddress('');
       setCustAuthError('');
-      showToast('تم إنشاء الحساب وتسجيل الدخول بنجاح أهلاً بك!');
-    } catch {
-      setCustAuthError('حدث خطأ أثناء حفظ البيانات');
+    } catch (error) {
+      setCustAuthError(error.message || 'حدث خطأ أثناء حفظ البيانات');
     }
   };
 
@@ -252,30 +287,39 @@ export default function App() {
       return;
     }
 
-    const customer = customers.find((c) => c.phone === phone);
-    if (!customer) {
-      setCustAuthError('رقم الهاتف غير مسجل، يرجى إنشاء حساب جديد');
-      return;
-    }
-
     try {
-      const passHash = await hashPasswordSHA256(custPassword);
-      if (passHash === customer.passwordHash) {
-        setCurrentCustomer(customer);
+      if (supabase) {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: authEmailForPhone(phone),
+          password: custPassword,
+        });
+        if (error) throw error;
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
+        setCurrentCustomer(profile);
         setShowCustomerAuthModal(false);
         setCustPhone('');
         setCustPassword('');
         setCustAuthError('');
         showToast('تم تسجيل الدخول بنجاح');
       } else {
-        setCustAuthError('كلمة المرور غير صحيحة');
+        const customer = customers.find((c) => c.phone === phone);
+        if (!customer) throw new Error('رقم الهاتف غير مسجل، يرجى إنشاء حساب جديد');
+        const passHash = await hashPasswordSHA256(custPassword);
+        if (passHash !== customer.passwordHash) throw new Error('كلمة المرور غير صحيحة');
+        setCurrentCustomer(customer);
+        setShowCustomerAuthModal(false);
+        setCustPhone('');
+        setCustPassword('');
+        setCustAuthError('');
+        showToast('تم تسجيل الدخول بنجاح');
       }
-    } catch {
-      setCustAuthError('حدث خطأ أثناء التحقق');
+    } catch (error) {
+      setCustAuthError(error.message || 'حدث خطأ أثناء التحقق');
     }
   };
 
-  const handleCustomerLogout = () => {
+  const handleCustomerLogout = async () => {
+    if (supabase) await supabase.auth.signOut();
     setCurrentCustomer(null);
     setActiveView('storefront');
     showToast('تم تسجيل خروج العميل');
@@ -297,7 +341,7 @@ export default function App() {
     return sanitizeNumber(pricingSettings.usdToSypRate, 1, 10000000, 15000);
   }, [pricingSettings.usdToSypRate]);
 
-  const handleCustomerSubmitOrder = (e) => {
+  const handleCustomerSubmitOrder = async (e) => {
     e.preventDefault();
     if (!currentCustomer) {
       setShowCustomerAuthModal(true);
@@ -338,7 +382,27 @@ export default function App() {
       createdAt: new Date().toLocaleDateString('ar-SY')
     };
 
-    setOrders([newOrder, ...orders]);
+    if (supabase) {
+      const { data: savedOrder, error } = await supabase.from('orders').insert({
+        customer_id: currentCustomer.id,
+        batch_name: activeBatch?.name || null,
+        cart_url: newOrder.cartUrl,
+        original_sar: newOrder.originalSar,
+        shipping_sar: newOrder.shippingSar,
+        commission_sar: newOrder.commissionSar,
+        final_syp: newOrder.finalSyp,
+        paid_syp: 0,
+        status: newOrder.status,
+        notes: newOrder.notes,
+      }).select().single();
+      if (error) {
+        showToast(error.message, 'error');
+        return;
+      }
+      setOrders([{ ...newOrder, ...savedOrder }, ...orders]);
+    } else {
+      setOrders([newOrder, ...orders]);
+    }
     setCustomerOrderForm({ cartUrl: '', originalSar: '', notes: '' });
     showToast('تم إرسال طلبك بنجاح! يمكنك متابعته من لوحتك الشخصية');
   };
