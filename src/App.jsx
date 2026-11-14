@@ -235,12 +235,12 @@ export default function App() {
   };
 
   const handleSupabaseAdminLogin = async (email, password) => {
-    if (email.toLowerCase() !== adminEmail.toLowerCase()) {
-      setAdminLoginError(`استخدم بريد الإدارة: ${adminEmail}`);
+    if (email.toLowerCase() !== adminAuth.username.toLowerCase()) {
+      setAdminLoginError('اسم المستخدم أو كلمة المرور غير صحيحة');
       return;
     }
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({ email: adminEmail, password });
     if (error) {
       setAdminLoginError(error.message || 'تعذر تسجيل دخول الإدارة');
       return;
@@ -512,7 +512,7 @@ export default function App() {
                 </div>
                 <div>
                   <h3 className="font-bold text-base">دخول لوحة تحكم الأدمن</h3>
-                  <p className="text-xs text-slate-400">استخدم بريد الإدارة وكلمة مرور Supabase</p>
+                  <p className="text-xs text-slate-400">اسم المستخدم: admin</p>
                 </div>
               </div>
               <button onClick={() => setShowAdminLoginModal(false)} className="p-2 rounded-xl text-slate-400 hover:text-white">
@@ -533,7 +533,7 @@ export default function App() {
                   required
                   value={adminUserField}
                   onChange={(e) => setAdminUserField(e.target.value)}
-                  placeholder="ameertrad82@gmail.com"
+                  placeholder="admin"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-slate-900 outline-none"
                   autoFocus
                 />
