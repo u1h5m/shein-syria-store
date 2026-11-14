@@ -52,6 +52,10 @@ drop policy if exists "Customers can create their orders" on public.orders;
 drop policy if exists "Customers can read their payments" on public.payments;
 drop policy if exists "Customers can create their payments" on public.payments;
 drop policy if exists "Anyone can read storefront settings" on public.store_settings;
+drop policy if exists "Admin can read all profiles" on public.profiles;
+drop policy if exists "Admin can read all orders" on public.orders;
+drop policy if exists "Admin can update all orders" on public.orders;
+drop policy if exists "Admin can delete all orders" on public.orders;
 
 create policy "Customers can read their profile"
   on public.profiles for select
@@ -62,6 +66,10 @@ create policy "Customers can update their profile"
   using (auth.uid() = id)
   with check (auth.uid() = id);
 
+create policy "Admin can read all profiles"
+  on public.profiles for select
+  using (lower(coalesce(auth.jwt()->>'email', '')) = 'ameertrad82@gmail.com');
+
 create policy "Customers can read their orders"
   on public.orders for select
   using (auth.uid() = customer_id);
@@ -69,6 +77,19 @@ create policy "Customers can read their orders"
 create policy "Customers can create their orders"
   on public.orders for insert
   with check (auth.uid() = customer_id);
+
+create policy "Admin can read all orders"
+  on public.orders for select
+  using (lower(coalesce(auth.jwt()->>'email', '')) = 'ameertrad82@gmail.com');
+
+create policy "Admin can update all orders"
+  on public.orders for update
+  using (lower(coalesce(auth.jwt()->>'email', '')) = 'ameertrad82@gmail.com')
+  with check (lower(coalesce(auth.jwt()->>'email', '')) = 'ameertrad82@gmail.com');
+
+create policy "Admin can delete all orders"
+  on public.orders for delete
+  using (lower(coalesce(auth.jwt()->>'email', '')) = 'ameertrad82@gmail.com');
 
 create policy "Customers can read their payments"
   on public.payments for select

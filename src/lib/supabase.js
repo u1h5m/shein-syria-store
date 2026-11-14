@@ -7,3 +7,5 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 export const supabase = supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
+
+export const adminEmail = import.meta.env.VITE_ADMIN_EMAIL || 'ameertrad82@gmail.com';

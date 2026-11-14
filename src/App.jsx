@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { supabase } from './lib/supabase';
+import { adminEmail, supabase } from './lib/supabase';
 import {
   ShoppingBag, ShieldCheck, Calculator, Package, Settings, Plus, Trash2,
   ExternalLink, Copy, Check, Search, Filter, Users, DollarSign, TrendingUp,
@@ -215,6 +215,11 @@ export default function App() {
       return;
     }
     
+    if (supabase) {
+      handleSupabaseAdminLogin(cleanUser, adminPassField);
+      return;
+    }
+
     if (cleanUser === adminAuth.username && adminPassField === adminAuth.password) {
       sessionStorage.setItem(STORAGE_KEYS.ADMIN_SESSION, 'true');
       setIsAdminAuthenticated(true);
@@ -229,12 +234,76 @@ export default function App() {
     }
   };
 
+  const handleSupabaseAdminLogin = async (email, password) => {
+    if (email.toLowerCase() !== adminEmail.toLowerCase()) {
+      setAdminLoginError(`استخدم بريد الإدارة: ${adminEmail}`);
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setAdminLoginError(error.message || 'تعذر تسجيل دخول الإدارة');
+      return;
+    }
+
+    sessionStorage.setItem(STORAGE_KEYS.ADMIN_SESSION, 'true');
+    setIsAdminAuthenticated(true);
+    setShowAdminLoginModal(false);
+    setActiveView('admin');
+    setAdminUserField('');
+    setAdminPassField('');
+    setAdminLoginError('');
+    showToast('مرحباً بك في لوحة الإدارة');
+  };
+
   const handleAdminLogout = () => {
     sessionStorage.removeItem(STORAGE_KEYS.ADMIN_SESSION);
+    if (supabase) supabase.auth.signOut();
     setIsAdminAuthenticated(false);
     setActiveView('storefront');
     showToast('تم تسجيل خروج الإدارة بأمان');
   };
+
+  useEffect(() => {
+    if (!supabase || !isAdminAuthenticated) return;
+    let active = true;
+
+    const loadAdminData = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || user.email?.toLowerCase() !== adminEmail.toLowerCase()) return;
+
+      const [{ data: profiles, error: profilesError }, { data: remoteOrders, error: ordersError }] = await Promise.all([
+        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+        supabase.from('orders').select('*, profiles:customer_id(full_name, phone, address)').order('created_at', { ascending: false }),
+      ]);
+
+      if (!active) return;
+      if (profilesError) {
+        showToast(profilesError.message, 'error');
+        return;
+      }
+      if (ordersError) {
+        showToast(ordersError.message, 'error');
+        return;
+      }
+
+      setCustomers((profiles || []).map((profile) => ({
+        ...profile,
+        name: profile.full_name,
+        createdAt: new Date(profile.created_at).toLocaleDateString('ar-SY'),
+      })));
+      setOrders((remoteOrders || []).map((order) => ({
+        ...order,
+        customerName: order.profiles?.full_name || '',
+        customerContact: order.profiles?.phone || '',
+        customerAddress: order.profiles?.address || '',
+        createdAt: new Date(order.created_at).toLocaleDateString('ar-SY'),
+      })));
+    };
+
+    loadAdminData();
+    return () => { active = false; };
+  }, [isAdminAuthenticated]);
 
   const handleCustomerRegister = async (e) => {
     e.preventDefault();
@@ -443,7 +512,7 @@ export default function App() {
                 </div>
                 <div>
                   <h3 className="font-bold text-base">دخول لوحة تحكم الأدمن</h3>
-                  <p className="text-xs text-slate-400">الافتراضي: admin / admin1234</p>
+                  <p className="text-xs text-slate-400">استخدم بريد الإدارة وكلمة مرور Supabase</p>
                 </div>
               </div>
               <button onClick={() => setShowAdminLoginModal(false)} className="p-2 rounded-xl text-slate-400 hover:text-white">
@@ -464,7 +533,7 @@ export default function App() {
                   required
                   value={adminUserField}
                   onChange={(e) => setAdminUserField(e.target.value)}
-                  placeholder="admin"
+                  placeholder="ameertrad82@gmail.com"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-slate-900 outline-none"
                   autoFocus
                 />
